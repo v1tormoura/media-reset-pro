@@ -1,0 +1,120 @@
+name: Media Reset Pro - Windows x64
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-reset-pro-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-test-package:
+    name: Build, test, package and verify (Windows x64)
+    runs-on: windows-2025
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Node and npm
+        uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Prepare diagnostic output
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path outputs/logs -Force | Out-Null
+          "workflow=$env:GITHUB_WORKFLOW" | Set-Content outputs/logs/runner.txt
+          "runner=$env:ImageOS $env:ImageVersion" | Add-Content outputs/logs/runner.txt
+          "node=$(node --version)" | Add-Content outputs/logs/runner.txt
+          "npm=$(npm --version)" | Add-Content outputs/logs/runner.txt
+          "arch=$([Runtime.InteropServices.RuntimeInformation]::OSArchitecture)" | Add-Content outputs/logs/runner.txt
+          if ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') { throw 'Expected an x64 Windows runner.' }
+          $expectedNode = 'v' + (Get-Content .nvmrc -Raw).Trim()
+          if ((node --version) -ne $expectedNode) { throw 'Node version does not match .nvmrc.' }
+          if ((npm --version) -ne '11.12.1') { throw 'npm version does not match packageManager pin.' }
+
+      - name: Install pinned FFmpeg test tools
+        shell: pwsh
+        run: ./scripts/install-ci-ffmpeg.ps1 *>&1 | Tee-Object outputs/logs/ffmpeg-install.log
+
+      - name: Install dependencies from lockfile
+        shell: pwsh
+        run: |
+          npm ci *>&1 | Tee-Object outputs/logs/npm-ci.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify native toolchain and architecture
+        shell: pwsh
+        run: |
+          npm run verify:native *>&1 | Tee-Object outputs/logs/native-integrity.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build TypeScript, Electron and renderer
+        shell: pwsh
+        run: |
+          npm run build *>&1 | Tee-Object outputs/logs/build.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run automated tests
+        shell: pwsh
+        run: |
+          npm test *>&1 | Tee-Object outputs/logs/tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Record package start timestamp
+        shell: pwsh
+        run: |
+          "MRP_BUILD_START_MS=$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())" >> $env:GITHUB_ENV
+          'MRP_REQUIRE_FRESH_BUILD=1' >> $env:GITHUB_ENV
+
+      - name: Build Windows x64 NSIS distribution
+        shell: pwsh
+        run: |
+          npm run dist:diagnose *>&1 | Tee-Object outputs/logs/dist-workflow.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify packed application and Sharp binaries
+        shell: pwsh
+        run: |
+          npm run verify:package *>&1 | Tee-Object outputs/logs/package-integrity.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify fresh installer and calculate SHA-256
+        shell: pwsh
+        run: |
+          npm run verify:release *>&1 | Tee-Object outputs/logs/release-integrity.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload private build artifact and logs
+        if: ${{ always() && github.event.repository.private == true }}
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: media-reset-pro-windows-x64-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            release/Media Reset Pro Setup *.exe
+            release/Media Reset Pro Setup *.exe.blockmap
+            outputs/build-manifest.json
+            outputs/SHA256SUMS.txt
+            outputs/logs/**
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
+
+      - name: Do not upload artifacts from public repositories
+        if: ${{ always() && github.event.repository.private != true }}
+        shell: pwsh
+        run: Write-Output 'Repository is public; binary and log artifacts were not uploaded.'

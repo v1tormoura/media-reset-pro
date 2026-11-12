@@ -1,0 +1,9 @@
+# Avisos de terceiros e distribuição
+
+- Electron 45.2.1 e Chromium: licenças e avisos devem acompanhar a distribuição de acordo com os artefatos upstream; o empacotador inclui os avisos Electron/Chromium.
+- Sharp e libvips: dependências incluídas pelo npm; os módulos nativos são desempacotados de ASAR (`asarUnpack`) no build Windows x64.
+- React, Vite, TypeScript, Vitest, electron-builder e dependências: consultar `package-lock.json` e arquivos de licença upstream; incluir avisos pertinentes ao distribuir o pacote fonte/binário.
+- FFmpeg e FFprobe: não são redistribuídos pelo projeto. O usuário seleciona executáveis que já estejam disponíveis e o aplicativo valida `-version`. Builds FFmpeg podem habilitar componentes GPL/LGPL e codecs com termos próprios. O distribuidor deve identificar a configuração exata, observar avisos, fontes/ofertas de fonte e obrigações aplicáveis antes de redistribuir.
+- CI de integração: `scripts/install-ci-ffmpeg.ps1` baixa o arquivo GPL x64 `ffmpeg-N-128273-g836436cfb9-win64-gpl.zip` do release BtbN `autobuild-2026-11-01-12-49`, verifica SHA-256 fixo e usa FFmpeg/FFprobe apenas nos testes. O binário não é incluído no NSIS nem redistribuído pelo workflow. Consulte https://ffmpeg.org/download.html e https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-11-01-12-49; qualquer distribuição separada requer revisão das licenças upstream/componentes.
+- GitHub Actions: workflow utiliza checkout, setup-node e upload-artifact oficiais, cada um referenciado por versão fixa. O artifact é temporário do workflow privado, com retenção de sete dias; não há publicação de Release.
+- Não foi aplicada assinatura digital ao instalador. A versão de saída atualmente guardada em `outputs` é anterior às alterações de 2026-11-02; não a distribua como versão desta rodada.
